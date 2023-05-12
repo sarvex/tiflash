@@ -65,21 +65,29 @@ class ColumnTypeManager(object):
         column_elements = []
         for i, t in enumerate(self.column_value_map):
             default_value = self.get_normal_value(t)
-            column_elements.append(ColumnElement("a" + str(2 * i), t, False, False, default_value))
-            column_elements.append(ColumnElement("a" + str(2 * i + 1), t, True, False, default_value))
+            column_elements.extend(
+                (
+                    ColumnElement(
+                        f"a{str(2 * i)}", t, False, False, default_value
+                    ),
+                    ColumnElement(
+                        f"a{str(2 * i + 1)}", t, True, False, default_value
+                    ),
+                )
+            )
         return column_elements
 
     def get_all_primary_key_elements(self):
-        column_elements = []
-        for i, t in enumerate(self.column_value_map):
-            column_elements.append(ColumnElement("a" + str(2 * i), t, False, True))
-        return column_elements
+        return [
+            ColumnElement(f"a{str(2 * i)}", t, False, True)
+            for i, t in enumerate(self.column_value_map)
+        ]
 
     def get_all_nullable_column_elements(self):
-        column_elements = []
-        for i, t in enumerate(self.column_value_map):
-            column_elements.append(ColumnElement("a" + str(2 * i), t, True, False))
-        return column_elements
+        return [
+            ColumnElement(f"a{str(2 * i)}", t, True, False)
+            for i, t in enumerate(self.column_value_map)
+        ]
 
     def get_min_value(self, column_type):
         return self.column_value_map[column_type][ColumnTypeManager.MinValueIndex]
@@ -135,8 +143,9 @@ def register_all_types(column_type_manager):
         ColumnType.typeBit64,
         [0, (1 << 64) - 1, 79, 0],
         None,
-        lambda name: "bin({})".format(name),
-        lambda value: "{0:b}".format(int(value)))
+        lambda name: f"bin({name})",
+        lambda value: "{0:b}".format(int(value)),
+    )
     column_type_manager.register_type(ColumnType.typeBoolean, [0, 1, 1, 0])
     column_type_manager.register_type(ColumnType.typeFloat, ["-3.402e38", "3.402e38", "-1.17e-38", 0])
     column_type_manager.register_type(ColumnType.typeDouble, ["-1.797e308", "1.797e308", "2.225e-308", 0])
@@ -147,11 +156,13 @@ def register_all_types(column_type_manager):
     column_type_manager.register_type(
         ColumnType.typeChar,
         ["", "a" * 200, "test", ""],
-        lambda value: "'" + value + "'")
+        lambda value: f"'{value}'",
+    )
     column_type_manager.register_type(
         ColumnType.typeVarchar,
         ["", "a" * 200, "tiflash", ""],
-        lambda value: "'" + value + "'")
+        lambda value: f"'{value}'",
+    )
 
 
 class ColumnElement(object):
@@ -163,11 +174,11 @@ class ColumnElement(object):
         self.is_primary_key = is_primary_key
 
     def get_schema(self, column_type_manager):
-        schema = self.name + " " + str(self.column_type)
+        schema = f"{self.name} {str(self.column_type)}"
         if not self.nullable:
             schema += " not null"
         if self.default_value is not None:
-            schema += " default {}".format(column_type_manager.get_value_for_dml_stmt(self.column_type, self.default_value))
+            schema += f" default {column_type_manager.get_value_for_dml_stmt(self.column_type, self.default_value)}"
         return schema
 
 
@@ -229,32 +240,29 @@ class StmtWriter(object):
         self.file.write("\n")
 
     def write_drop_table_stmt(self):
-        command = "mysql> drop table if exists {}.{}\n".format(self.db_name, self.table_name)
+        command = f"mysql> drop table if exists {self.db_name}.{self.table_name}\n"
         self.file.write(command)
 
     def write_create_table_schema_stmt(self, column_elements, column_type_manager):
         column_schema = ", ".join([c.get_schema(column_type_manager) for c in column_elements])
-        primary_key_names = []
-        for c in column_elements:
-            if c.is_primary_key:
-                primary_key_names.append(c.name)
-        if len(primary_key_names) > 0:
-            column_schema += ", primary key({})".format(", ".join(primary_key_names))
+        if primary_key_names := [
+            c.name for c in column_elements if c.is_primary_key
+        ]:
+            column_schema += f', primary key({", ".join(primary_key_names)})'
 
-        command = "mysql> create table {}.{}({})\n".format(self.db_name, self.table_name, column_schema)
+        command = f"mysql> create table {self.db_name}.{self.table_name}({column_schema})\n"
         self.file.write(command)
 
     def write_create_tiflash_replica_stmt(self):
-        command = "mysql> alter table {}.{} set tiflash replica 1\n".format(self.db_name, self.table_name)
+        command = f"mysql> alter table {self.db_name}.{self.table_name} set tiflash replica 1\n"
         self.file.write(command)
 
     def write_wait_table_stmt(self):
-        command = "func> wait_table {} {}\n".format(self.db_name, self.table_name)
+        command = f"func> wait_table {self.db_name} {self.table_name}\n"
         self.file.write(command)
 
     def write_insert_stmt(self, column_names, column_values):
-        command = "mysql> insert into {}.{} ({}) values({})\n".format(
-            self.db_name, self.table_name, ", ".join(column_names), ", ".join(column_values))
+        command = f'mysql> insert into {self.db_name}.{self.table_name} ({", ".join(column_names)}) values({", ".join(column_values)})\n'
         self.file.write(command)
 
     def write_update_stmt(self, column_names, prev_values, after_values):
@@ -262,26 +270,22 @@ class StmtWriter(object):
         update_part = ""
         filter_part = ""
         for i in range(len(column_names)):
-            update_part += "{}={}".format(column_names[i], after_values[i])
-            filter_part += "{}={}".format(column_names[i], prev_values[i])
+            update_part += f"{column_names[i]}={after_values[i]}"
+            filter_part += f"{column_names[i]}={prev_values[i]}"
 
-        command = "mysql> update {}.{} set {} where {}\n".format(
-            self.db_name, self.table_name, update_part, filter_part)
+        command = f"mysql> update {self.db_name}.{self.table_name} set {update_part} where {filter_part}\n"
         self.file.write(command)
 
     def write_delete_stmt(self, column_names, values):
         assert len(column_names) == len(values)
-        filter_part = ""
-        for i in range(len(column_names)):
-            filter_part += "{}={}".format(column_names[i], values[i])
-
-        command = "mysql> delete from {}.{} where {}\n".format(
-            self.db_name, self.table_name, filter_part)
+        filter_part = "".join(
+            f"{column_names[i]}={values[i]}" for i in range(len(column_names))
+        )
+        command = f"mysql> delete from {self.db_name}.{self.table_name} where {filter_part}\n"
         self.file.write(command)
 
     def write_select_stmt(self, column_select_exprs):
-        command = "mysql> set SESSION tidb_isolation_read_engines='tiflash'; select {} from {}.{}\n".format(
-            ", ".join(column_select_exprs), self.db_name, self.table_name)
+        command = f"""mysql> set SESSION tidb_isolation_read_engines='tiflash'; select {", ".join(column_select_exprs)} from {self.db_name}.{self.table_name}\n"""
         self.file.write(command)
 
     def write_result(self, column_select_exprs, *row_column_values):
@@ -300,9 +304,12 @@ class TestCaseWriter(object):
                                      column_elements[i].column_type, column_values[i]) for i in range(len(column_values))]
 
     def _build_formatted_values(self, column_elements, column_values):
-        result = [self.column_type_manager.format_result_value(
-                                     column_elements[i].column_type, column_values[i]) for i in range(len(column_values))]
-        return result
+        return [
+            self.column_type_manager.format_result_value(
+                column_elements[i].column_type, column_values[i]
+            )
+            for i in range(len(column_values))
+        ]
 
     def _write_create_table(self, writer, column_elements):
         writer.write_drop_table_stmt()
@@ -400,7 +407,7 @@ class TestCaseWriter(object):
         writer.write_newline()
         # update
         writer.write_update_stmt([filter_column_name], [filter_value1], [new_filter_value1])
-        column_values1[len(column_values1) - 1] = new_filter_value1
+        column_values1[-1] = new_filter_value1
         writer.write_select_stmt(column_select_exprs)
         writer.write_result(
             column_select_exprs,
@@ -449,7 +456,7 @@ class TestCaseWriter(object):
         writer.write_newline()
         # update
         writer.write_update_stmt([filter_column_name], [filter_value1], [new_filter_value1])
-        column_values1[len(column_values1) - 1] = new_filter_value1
+        column_values1[-1] = new_filter_value1
         writer.write_select_stmt(column_select_exprs)
         writer.write_result(
             column_select_exprs,
@@ -491,7 +498,7 @@ class TestCaseWriter(object):
         writer.write_newline()
         # update
         writer.write_update_stmt([filter_column_name], [filter_value1], [new_filter_value1])
-        column_values1[len(column_values1) - 1] = new_filter_value1
+        column_values1[-1] = new_filter_value1
         writer.write_select_stmt(column_select_exprs)
         writer.write_result(
             column_select_exprs,
@@ -538,10 +545,25 @@ def run(db_name, table_name, test_dir):
 
     case_writer = TestCaseWriter(column_type_manager)
     # case: decode min/max/normal/default/null values of different type
-    write_case(test_dir + "/basic_codec.test", db_name, table_name, case_writer.write_basic_type_codec_test)
+    write_case(
+        f"{test_dir}/basic_codec.test",
+        db_name,
+        table_name,
+        case_writer.write_basic_type_codec_test,
+    )
     # case: update/delete for different kinds of primary key
-    write_case(test_dir + "/update_delete1.test", db_name, table_name, case_writer.write_update_delete_test1)
-    write_case(test_dir + "/update_delete2.test", db_name, table_name, case_writer.write_update_delete_test2)
+    write_case(
+        f"{test_dir}/update_delete1.test",
+        db_name,
+        table_name,
+        case_writer.write_update_delete_test1,
+    )
+    write_case(
+        f"{test_dir}/update_delete2.test",
+        db_name,
+        table_name,
+        case_writer.write_update_delete_test2,
+    )
 
 
 def main():
@@ -560,7 +582,7 @@ def main():
             raise
 
     try:
-        print("begin to create test case to path {}".format(test_dir))
+        print(f"begin to create test case to path {test_dir}")
         run(db_name, table_name, test_dir)
         print("create test case done")
     except KeyboardInterrupt:

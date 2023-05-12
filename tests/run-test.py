@@ -70,9 +70,9 @@ class Executor:
 
     def exe(self, cmd, unescape = True):
         if unescape:
-            cmd = self.dbc + ' "' + to_unescaped_str(cmd) + '" 2>&1'
+            cmd = f'{self.dbc} "{to_unescaped_str(cmd)}" 2>&1'
         else:
-            cmd = self.dbc + ' "' + cmd + '" 2>&1'
+            cmd = f'{self.dbc} "{cmd}" 2>&1'
         return exec_func(cmd)
 
 
@@ -81,15 +81,12 @@ class ShellFuncExecutor:
         self.dbc = dbc
 
     def exe(self, cmd, unescape = False):
-        return exec_func(cmd + ' "' + self.dbc + '" 2>&1')
+        return exec_func(f'{cmd} "{self.dbc}" 2>&1')
 
 
 class CurlTiDBExecutor:
     def __init__(self):
-        self.tidb_status_addr = '{}:{}'.format(
-            os.getenv('tidb_server', "127.0.0.1"),
-            os.getenv('tidb_status_port', 10080)
-        )
+        self.tidb_status_addr = f"""{os.getenv('tidb_server', "127.0.0.1")}:{os.getenv('tidb_status_port', 10080)}"""
 
     def exe(self, context):
         context = [e for e in context.split(' ') if e]
@@ -99,17 +96,17 @@ class CurlTiDBExecutor:
         # get uri
 
         method = context[0].upper()
-        uri = "http://{}/{}".format(self.tidb_status_addr, context[1])
+        uri = f"http://{self.tidb_status_addr}/{context[1]}"
         # print('uri is {} {} {}'.format(method, uri, context[2:]))
         request = UrlRequest(uri)
         request.get_method = lambda: method
-        if request.get_method() == 'POST' or request.get_method() == 'PUT':
+        if request.get_method() in ['POST', 'PUT']:
             request.data = context[2]
         try:
             response = urlopen(request).read().strip()
             return [response] if request.get_method() == 'GET' and response else None, None
         except HTTPError as e:
-            return ['Error: {}. Uri: {}'.format(e, uri)], e
+            return [f'Error: {e}. Uri: {uri}'], e
 
 
 def parse_line(line):
@@ -122,10 +119,9 @@ def parse_table_parts(lines, fuzz):
     if not fuzz:
         curr = []
         for line in lines:
-            if line.startswith('┌'):
-                if len(curr) != 0:
-                    parts.add('\n'.join(curr))
-                    curr = []
+            if line.startswith('┌') and len(curr) != 0:
+                parts.add('\n'.join(curr))
+                curr = []
             curr.append(parse_line(line))
         if len(curr) != 0:
             parts.add('\n'.join(curr))
@@ -159,9 +155,7 @@ def match_ph_word(line):
     while not is_break_char(line[i]):
         i += 1
         found = True
-    if not found:
-        return 0
-    return i
+    return 0 if not found else i
 
 
 # TODO: Support more place holders, eg: {#NUMBER}
@@ -171,19 +165,17 @@ def compare_line(line, template):
     l = template.find(LINE_PH)
     if l >= 0:
         return True
-    else:
-        while True:
-            i = template.find(WORD_PH)
-            if i < 0:
-                return line == template
-            else:
-                if line[:i] != template[:i]:
-                    return False
-                j = match_ph_word(line[i:])
-                if j == 0:
-                    return False
-                template = template[i + len(WORD_PH):]
-                line = line[i + j:]
+    while True:
+        i = template.find(WORD_PH)
+        if i < 0:
+            return line == template
+        if line[:i] != template[:i]:
+            return False
+        j = match_ph_word(line[i:])
+        if j == 0:
+            return False
+        template = template[i + len(WORD_PH):]
+        line = line[i + j:]
 
 
 class MySQLCompare:
@@ -222,8 +214,7 @@ class MySQLCompare:
     def matched(outputs, matches):
         if len(outputs) == 0 and len(matches) == 0:
             return True
-        is_table_parts = len(matches) > 0 and matches[0].startswith('+')
-        if is_table_parts:
+        if is_table_parts := len(matches) > 0 and matches[0].startswith('+'):
             a = MySQLCompare.parse_mysql_outputs(outputs)
             b = MySQLCompare.parse_excepted_outputs(matches)
             return a == b
@@ -233,18 +224,17 @@ class MySQLCompare:
             for i in range(0, len(outputs)):
                 if not compare_line(outputs[i], matches[i]):
                     return False
-            for i in range(len(outputs), len(matches)):
-                if not compare_line("", matches[i]):
-                    return False
-            return True
+            return all(
+                compare_line("", matches[i])
+                for i in range(len(outputs), len(matches))
+            )
 
 
 def matched(outputs, matches, fuzz):
     if len(outputs) == 0 and len(matches) == 0:
         return True
 
-    is_table_parts = len(matches) > 0 and matches[0].startswith('┌')
-    if is_table_parts:
+    if is_table_parts := len(matches) > 0 and matches[0].startswith('┌'):
         a = parse_table_parts(outputs, fuzz)
         b = parse_table_parts(matches, fuzz)
         return a == b
@@ -254,10 +244,10 @@ def matched(outputs, matches, fuzz):
         for i in range(0, len(outputs)):
             if not compare_line(outputs[i], matches[i]):
                 return False
-        for i in range(len(outputs), len(matches)):
-            if not compare_line("", matches[i]):
-                return False
-        return True
+        return all(
+            compare_line("", matches[i])
+            for i in range(len(outputs), len(matches))
+        )
 
 
 class Matcher:
@@ -337,10 +327,14 @@ class Matcher:
         return True
 
     def on_finish(self):
-        if self.outputs != None and ((not self.is_mysql and not matched(self.outputs, self.matches, self.fuzz)) or (
-            self.is_mysql and not MySQLCompare.matched(self.outputs, self.matches))):
-            return False
-        return True
+        return bool(
+            self.outputs is None
+            or (self.is_mysql or matched(self.outputs, self.matches, self.fuzz))
+            and (
+                not self.is_mysql
+                or MySQLCompare.matched(self.outputs, self.matches)
+            )
+        )
 
 
 def parse_exe_match(path, executor, executor_tidb, executor_func, executor_curl_tidb, fuzz):
@@ -369,9 +363,12 @@ def parse_exe_match(path, executor, executor_tidb, executor_func, executor_curl_
                 return False, matcher, todos
             cached = line
             line_number_cached = line_number
-        if (cached != None and not matcher.on_line(cached, line_number)) or not matcher.on_finish():
+        if (
+            cached is None or matcher.on_line(cached, line_number)
+        ) and matcher.on_finish():
+            return True, matcher, todos
+        else:
             return False, matcher, todos
-        return True, matcher, todos
 
 
 def run():

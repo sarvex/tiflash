@@ -38,8 +38,7 @@ def get_tz_offset():
         total_seconds = -total_seconds
     mm, ss = divmod(total_seconds, 60)
     hh, mm = divmod(mm, 60)
-    tz_offset = "%s%02d:%02d" % (flag, hh, mm)
-    return tz_offset
+    return "%s%02d:%02d" % (flag, hh, mm)
 
 
 def init_logger():
@@ -59,7 +58,7 @@ def init_logger():
     def get_message(ori):
         msg = str(ori.msg)
         if ori.args:
-            msg = msg % ori.args
+            msg %= ori.args
         msg = "{}{}{}".format(log_colors[ori.levelno], msg, "\033[0m")
         return msg
 
@@ -96,7 +95,7 @@ def wrap_run_time(func):
 
 @wrap_run_time
 def run_cmd(cmd):
-    logger.debug("RUN CMD:\n{}\n".format(' '.join(cmd)))
+    logger.debug(f"RUN CMD:\n{' '.join(cmd)}\n")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
     stdout, stderr = proc.communicate()
@@ -145,7 +144,10 @@ class Runner:
             parser.add_argument(
                 '--convert-tool', help='tool to conver linux perf data to llvm profile data', required=True)
             parser.add_argument(
-                '--input-perf-file', help='input linux perf data file path', required=False if self.args.perf else True)
+                '--input-perf-file',
+                help='input linux perf data file path',
+                required=not self.args.perf,
+            )
             parser.add_argument(
                 '--binary', help='binary to run workload', required=True)
             parser.add_argument(
@@ -178,13 +180,23 @@ class Runner:
         self.args.binary = os.path.realpath(self.args.binary)
         assert os.path.isfile(self.args.binary)
 
-        logger.info('start to convert linux perf data `{}` to llvm profile data `{}`'.format(
-            self.args.input_perf_file, self.args.output_llvm_prof))
-        stdout, stderr, e = run_cmd([self.args.convert_tool, '--profile', '{}'.format(self.args.input_perf_file),
-                                     '--binary', "{}".format(self.args.binary),
-                                     '--out', '{}'.format(self.args.output_llvm_prof)])
         logger.info(
-            'finish convert. stdout `{}`, stderr `{}`'.format(stdout.decode('utf-8'), stderr.decode('utf-8')))
+            f'start to convert linux perf data `{self.args.input_perf_file}` to llvm profile data `{self.args.output_llvm_prof}`'
+        )
+        stdout, stderr, e = run_cmd(
+            [
+                self.args.convert_tool,
+                '--profile',
+                f'{self.args.input_perf_file}',
+                '--binary',
+                f"{self.args.binary}",
+                '--out',
+                f'{self.args.output_llvm_prof}',
+            ]
+        )
+        logger.info(
+            f"finish convert. stdout `{stdout.decode('utf-8')}`, stderr `{stderr.decode('utf-8')}`"
+        )
         assert e == 0
 
     def run_perf(self):

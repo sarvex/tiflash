@@ -125,9 +125,7 @@ def term_width(out):
         p = subprocess.Popen(["stty", "size"],
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         (out, err) = p.communicate()
-        if p.returncode != 0 or err:
-            return None
-        return int(out.split()[1])
+        return None if p.returncode != 0 or err else int(out.split()[1])
     except (IndexError, OSError, ValueError):
         return None
 
@@ -177,9 +175,8 @@ def get_save_file_path():
 
     if os.path.isdir(cache_path):
         return os.path.join(cache_path, 'gtest-parallel')
-    else:
-        sys.stderr.write('Directory {} does not exist'.format(cache_path))
-        return os.path.join(os.path.expanduser('~'), '.gtest-parallel-times')
+    sys.stderr.write(f'Directory {cache_path} does not exist')
+    return os.path.join(os.path.expanduser('~'), '.gtest-parallel-times')
 
 
 @total_ordering
@@ -364,8 +361,7 @@ class FilterFormat(object):
             shutil.move(task.log_file, destination_dir)
 
     def print_tests(self, message, tasks, print_try_number):
-        self.out.permanent_line("%s (%s/%s):" %
-                                (message, len(tasks), self.total_tasks))
+        self.out.permanent_line(f"{message} ({len(tasks)}/{self.total_tasks}):")
         for task in sorted(tasks):
             runtime_ms = 'Interrupted'
             if task.runtime_ms is not None:
@@ -382,7 +378,7 @@ class FilterFormat(object):
                                        task.test_name, task.runtime_ms))
             if task.exit_code != 0:
                 with open(task.log_file) as f:
-                    for line in f.readlines():
+                    for line in f:
                         self.out.permanent_line(line.rstrip())
                 self.out.permanent_line(
                     "[%d/%d] %s returned/aborted with exit code %d (%d ms)"
@@ -402,8 +398,7 @@ class FilterFormat(object):
                 except OSError as e:
                     if e.errno is not errno.ENOENT:
                         if i is num_tries - 1:
-                            self.out.permanent_line(
-                                'Could not remove temporary log file: ' + str(e))
+                            self.out.permanent_line(f'Could not remove temporary log file: {str(e)}')
                         else:
                             time.sleep(0.1)
                         continue
@@ -418,7 +413,7 @@ class FilterFormat(object):
 
         def add_stats(stats, task, idx):
             task_key = (task.test_binary, task.test_name)
-            if not task_key in stats:
+            if task_key not in stats:
                 # (passed, failed, interrupted) task_key is added as tie breaker to get
                 # alphabetic sorting on equally-stable tests
                 stats[task_key] = [0, 0, 0, task_key]
@@ -473,7 +468,7 @@ class CollectTestResults(object):
                 results = results.setdefault(name, {})
 
             if results:
-                results['actual'] += ' ' + actual_result
+                results['actual'] += f' {actual_result}'
                 results['times'].append(runtime_ms)
             else:  # This is the first invocation of the test
                 results['actual'] = actual_result
@@ -612,7 +607,7 @@ def find_tests(binaries, additional_args, options, times):
 
         list_command = command + ['--gtest_list_tests']
         if options.gtest_filter != '':
-            list_command += ['--gtest_filter=' + options.gtest_filter]
+            list_command += [f'--gtest_filter={options.gtest_filter}']
 
         try:
             test_list = subprocess.check_output(list_command,
@@ -626,11 +621,10 @@ def find_tests(binaries, additional_args, options, times):
             # subprocess.check_output() returns bytes in python3
             test_list = test_list.decode(sys.stdout.encoding).split('\n')
 
-        command += ['--gtest_color=' + options.gtest_color]
+        command += [f'--gtest_color={options.gtest_color}']
 
         if options.gtest_catch_exceptions:
-            command += ['--gtest_catch_exceptions={}'.format(
-                options.gtest_catch_exceptions)]
+            command += [f'--gtest_catch_exceptions={options.gtest_catch_exceptions}']
 
         if options.gtest_break_on_failure:
             command += ['--gtest_catch_exceptions']
@@ -660,13 +654,19 @@ def find_tests(binaries, additional_args, options, times):
             if options.failed and last_execution_time is not None:
                 continue
 
-            test_command = command + ['--gtest_filter=' + test_name]
+            test_command = command + [f'--gtest_filter={test_name}']
             if (test_count - options.shard_index) % options.shard_count == 0:
-                for execution_number in range(options.repeat):
-                    tasks.append(Task(test_binary, test_name, test_command,
-                                      execution_number + 1, last_execution_time,
-                                      options.output_dir))
-
+                tasks.extend(
+                    Task(
+                        test_binary,
+                        test_name,
+                        test_command,
+                        execution_number + 1,
+                        last_execution_time,
+                        options.output_dir,
+                    )
+                    for execution_number in range(options.repeat)
+                )
             test_count += 1
 
     # Sort the tasks to run the slowest tests first, so that faster ones can be
@@ -819,7 +819,7 @@ def main():
     # Check that all test binaries have an unique basename. That way we can ensure
     # the logs are saved to unique files even when two different binaries have
     # common tests.
-    unique_binaries = set(os.path.basename(binary) for binary in binaries)
+    unique_binaries = {os.path.basename(binary) for binary in binaries}
     assert len(unique_binaries) == len(binaries), (
         "All test binaries must have an unique basename.")
 

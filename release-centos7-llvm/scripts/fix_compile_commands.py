@@ -26,13 +26,14 @@ def check_files(data, load_diff_files_from):
     except Exception:
         return data
     files = d['files']
-    repo = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../../')
+    repo = os.path.abspath(f'{os.path.dirname(os.path.abspath(__file__))}/../../')
     for e in files:
-        e = '{}{}'.format(repo, e)
-        e = data_map.get(e)
-        if e:
+        e = f'{repo}{e}'
+        if e := data_map.get(e):
             remain.append(e)
-    print('original {} files, remain {} files for static analysis'.format(len(data), len(remain)))
+    print(
+        f'original {len(data)} files, remain {len(remain)} files for static analysis'
+    )
     return remain
 
 
@@ -46,7 +47,7 @@ def main():
     if args.load_diff_files_from:
         data = check_files(data, args.load_diff_files_from)
     json.dump(data, open(args.file_path, 'w'), indent=4)
-    print('process {} elements'.format(len(data)))
+    print(f'process {len(data)} elements')
 
 
 if __name__ == '__main__':
